@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧧 新年扑克记账(直连版)</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #1a1a1a; color: white; padding: 20px; text-align: center; }
+        .box { background: #2c3e50; padding: 20px; border-radius: 15px; margin-bottom: 20px; }
+        .player-row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #444; }
+        button { background: #27ae60; color: white; border: none; padding: 10px; border-radius: 5px; }
+        #my-id { color: #f1c40f; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h2>🧧 扑克记账 (免服务器版)</h2>
+
+    <div class="box">
+        <p>你的ID: <span id="my-id">正在获取...</span></p>
+        <input type="text" id="join-id" placeholder="输入房主的ID">
+        <button onclick="connectToHost()">加入房间</button>
+    </div>
+
+    <div id="game-area" class="box">
+        <div id="player-list"></div>
+    </div>
+
+    <script>
+        let peer = new Peer(); // 创建直连对象
+        let connections = [];
+        let players = {}; // 存储分数
+
+        // 1. 获取自己的 ID
+        peer.on('open', (id) => {
+            document.getElementById('my-id').innerText = id;
+            players[id] = { name: "我", chips: 1000 };
+            render();
+        });
+
+        // 2. 房主：监听别人加入
+        peer.on('connection', (conn) => {
+            connections.push(conn);
+            conn.on('data', (data) => {
+                if(data.type === 'join') {
+                    players[data.id] = { name: data.name, chips: 1000 };
+                    broadcast({ type: 'update', players: players });
+                }
+                if(data.type === 'transfer') {
+                    players[data.from].chips -= data.amount;
+                    players[data.to].chips += data.amount;
+                    broadcast({ type: 'update', players: players });
+                }
+            });
+        });
+
+        // 3. 成员：连接房主
+        function connectToHost() {
+            const hostId = document.getElementById('join-id').value;
+            let conn = peer.connect(hostId);
+            conn.on('open', () => {
+                conn.send({ type: 'join', id: peer.id, name: "玩家" + peer.id.substring(0,3) });
+            });
+            conn.on('data', (data) => {
+                if(data.type === 'update') {
+                    players = data.players;
+                    render();
+                }
+            });
+        }
+
+        // 4. 广播给所有人
+        function broadcast(data) {
+            connections.forEach(c => c.send(data));
+            render();
+        }
+
+        function sendMoney(toId) {
+            // 这里为了演示简单，默认转账100
+            const amount = 100;
+            // 如果我是房主直接处理，如果是成员发给房主处理
+            // (此简易版建议由一个人当房主操作，最稳妥)
+            players[peer.id].chips -= amount;
+            players[toId].chips += amount;
+            broadcast({ type: 'update', players: players });
+        }
+
+        function render() {
+            const list = document.getElementById('player-list');
+            list.innerHTML = '';
+            for(let id in players) {
+                const p = players[id];
+                list.innerHTML += `
+                    <div class="player-row">
+                        <span>${p.name}: ${p.chips}</span>
+                        ${id !== peer.id ? `<button onclick="sendMoney('${id}')">给他100</button>` : ''}
+                    </div>`;
+            }
+        }
+    </script>
+</body>
+</html>
